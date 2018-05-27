@@ -5,12 +5,16 @@ namespace Laravel\Passport\Http\Middleware;
 use Closure;
 use League\OAuth2\Server\ResourceServer;
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Contracts\Events\Dispatcher;
+use Laravel\Passport\Events\ClientAuthenticationFailed;
 use Laravel\Passport\Exceptions\MissingScopeException;
 use League\OAuth2\Server\Exception\OAuthServerException;
 use Symfony\Bridge\PsrHttpMessage\Factory\DiactorosFactory;
 
 class CheckClientCredentials
 {
+    const INVALID_CLIENT = 4;
+
     /**
      * The Resource Server instance.
      *
@@ -19,13 +23,22 @@ class CheckClientCredentials
     protected $server;
 
     /**
+     * The event dispatcher instance.
+     *
+     * @var \Illuminate\Contracts\Events\Dispatcher
+     */
+    protected $events;
+
+    /**
      * Create a new middleware instance.
      *
      * @param  \League\OAuth2\Server\ResourceServer  $server
+     * @param  \Illuminate\Contracts\Events\Dispatcher  $events
      * @return void
      */
-    public function __construct(ResourceServer $server)
+    public function __construct(ResourceServer $server, Dispatcher $events)
     {
+        $this->events = $events;
         $this->server = $server;
     }
 
@@ -45,6 +58,12 @@ class CheckClientCredentials
         try {
             $psr = $this->server->validateAuthenticatedRequest($psr);
         } catch (OAuthServerException $e) {
+            if ($e->getCode() === static::INVALID_CLIENT) {
+                $this->events->dispatch(new ClientAuthenticationFailed(
+                    $psr->getQueryParams()['client_id']
+                ));
+            }
+
             throw new AuthenticationException;
         }
 

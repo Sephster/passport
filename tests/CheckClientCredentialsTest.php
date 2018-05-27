@@ -6,6 +6,8 @@ use Laravel\Passport\Http\Middleware\CheckClientCredentials;
 
 class CheckClientCredentialsTest extends TestCase
 {
+    const INVALID_CLIENT_EXCEPTION_CODE = 4;
+
     public function tearDown()
     {
         Mockery::close();
@@ -20,7 +22,9 @@ class CheckClientCredentialsTest extends TestCase
         $psr->shouldReceive('getAttribute')->with('oauth_access_token_id')->andReturn('token');
         $psr->shouldReceive('getAttribute')->with('oauth_scopes')->andReturn(['*']);
 
-        $middleware = new CheckClientCredentials($resourceServer);
+        $eventDispatcher = Mockery::mock('Illuminate\Contracts\Events\Dispatcher');
+
+        $middleware = new CheckClientCredentials($resourceServer, $eventDispatcher);
 
         $request = Request::create('/');
         $request->headers->set('Authorization', 'Bearer token');
@@ -41,7 +45,9 @@ class CheckClientCredentialsTest extends TestCase
         $psr->shouldReceive('getAttribute')->with('oauth_access_token_id')->andReturn('token');
         $psr->shouldReceive('getAttribute')->with('oauth_scopes')->andReturn(['see-profile']);
 
-        $middleware = new CheckClientCredentials($resourceServer);
+        $eventDispatcher = Mockery::mock('Illuminate\Contracts\Events\Dispatcher');
+
+        $middleware = new CheckClientCredentials($resourceServer, $eventDispatcher);
 
         $request = Request::create('/');
         $request->headers->set('Authorization', 'Bearer token');
@@ -63,9 +69,38 @@ class CheckClientCredentialsTest extends TestCase
             new League\OAuth2\Server\Exception\OAuthServerException('message', 500, 'error type')
         );
 
-        $middleware = new CheckClientCredentials($resourceServer);
+        $eventDispatcher = Mockery::mock('Illuminate\Contracts\Events\Dispatcher');
+
+        $middleware = new CheckClientCredentials($resourceServer, $eventDispatcher);
 
         $request = Request::create('/');
+        $request->headers->set('Authorization', 'Bearer token');
+
+        $middleware->handle($request, function () {
+            return 'response';
+        });
+    }
+
+    /**
+     * @expectedException Illuminate\Auth\AuthenticationException
+     */
+    public function test_event_is_dispatched_when_client_authentication_fails()
+    {
+        $resourceServer = Mockery::mock('League\OAuth2\Server\ResourceServer');
+        $resourceServer->shouldReceive('validateAuthenticatedRequest')->andThrow(
+            new League\OAuth2\Server\Exception\OAuthServerException(
+                'message',
+                static::INVALID_CLIENT_EXCEPTION_CODE,
+                'invalid_client'
+            )
+        );
+
+        $eventDispatcher = Mockery::mock('Illuminate\Contracts\Events\Dispatcher');
+        $eventDispatcher->shouldReceive('dispatch')->once();
+
+        $middleware = new CheckClientCredentials($resourceServer, $eventDispatcher);
+
+        $request = Request::create('/', 'GET', ['client_id' => 999]);
         $request->headers->set('Authorization', 'Bearer token');
 
         $middleware->handle($request, function () {
@@ -85,7 +120,9 @@ class CheckClientCredentialsTest extends TestCase
         $psr->shouldReceive('getAttribute')->with('oauth_access_token_id')->andReturn('token');
         $psr->shouldReceive('getAttribute')->with('oauth_scopes')->andReturn(['foo', 'notbar']);
 
-        $middleware = new CheckClientCredentials($resourceServer);
+        $eventDispatcher = Mockery::mock('Illuminate\Contracts\Events\Dispatcher');
+
+        $middleware = new CheckClientCredentials($resourceServer, $eventDispatcher);
 
         $request = Request::create('/');
         $request->headers->set('Authorization', 'Bearer token');
